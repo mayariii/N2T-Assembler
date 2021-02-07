@@ -12,16 +12,26 @@ namespace N2T_Assembler
             return dataIn.Split(new[] { "//" }, StringSplitOptions.None)[0].Trim().Replace(" ", string.Empty);
         }
 
+        public static bool IsWhitespaceOrComment(string lineToCheck)
+        {
+            return lineToCheck.StartsWith("//") || string.IsNullOrWhiteSpace(lineToCheck);
+        }
+
         private static void Main(string[] args)
 
         {
             //file input & naming
-            string sourceFilePath = "C:\\test\\Pong.asm";
+            Console.WriteLine("Please enter filepath: ");
+            string sourceFilePath = Console.ReadLine();
+
+            while (!File.Exists(sourceFilePath))
+            {
+                Console.WriteLine("Please enter filepath: ");
+                sourceFilePath = Console.ReadLine();
+            }
+
             string fileNameOut = Path.GetFileNameWithoutExtension(sourceFilePath) + ".hack";
             string destFilePath = Path.GetDirectoryName(sourceFilePath) + "\\" + fileNameOut;
-
-            //read file
-            IEnumerable<string> lines = File.ReadLines(sourceFilePath);
 
             //initialise symbol table
             // dictionary for pre-defined symbols
@@ -53,13 +63,17 @@ namespace N2T_Assembler
                     {"THAT", 4}
                 };
 
+
+            //read file
+            IEnumerable<string> lines = File.ReadLines(sourceFilePath);
+
             // first pass - look for labels only
             string[] linesToRead = lines.ToArray();
             var linesRead = 0;
 
             foreach (string lineToRead in linesToRead)
             {
-                if (lineToRead.StartsWith("//") || string.IsNullOrWhiteSpace(lineToRead))
+                if (IsWhitespaceOrComment(lineToRead))
                 {
                     continue;
                 }
@@ -75,13 +89,11 @@ namespace N2T_Assembler
                 }
             }
 
-            Console.WriteLine("FIRST PASS COMPLETE");
-            var assignedAddress = 16;
-
             //second pass - look for variables
+            var assignedAddress = 16;
             foreach (string lineToRead in linesToRead)
             {
-                if (lineToRead.StartsWith("//") || string.IsNullOrWhiteSpace(lineToRead))
+                if (IsWhitespaceOrComment(lineToRead))
                 {
                     continue;
                 }
@@ -104,20 +116,10 @@ namespace N2T_Assembler
                 }
             }
 
-            Console.WriteLine("SECOND PASS COMPLETE");
-            foreach (KeyValuePair<string, int> kvp in symbolDictionary)
-            {
-                Console.WriteLine("Key = {0}, Value = {1}",
-                    kvp.Key, kvp.Value);
-            }
-
-            foreach (string lineToRead in linesToRead)
-            {
-                //third pass - check for A or C instruction, translate to binary & write to file
-                // comp bits dictionary
-                Dictionary<string, string> compDictionary =
-                    new Dictionary<string, string>
-                    {
+            // comp bits dictionary
+            Dictionary<string, string> compDictionary =
+                new Dictionary<string, string>
+                {
                         {"0", "101010"},
                         {"1", "111111"},
                         {"-1", "111010"},
@@ -146,12 +148,12 @@ namespace N2T_Assembler
                         {"D&M", "000000"},
                         {"D|A", "010101"},
                         {"D|M", "010101"}
-                    };
+                };
 
-                // destination bits dictionary
-                Dictionary<string, string> destDictionary =
-                    new Dictionary<string, string>
-                    {
+            // destination bits dictionary
+            Dictionary<string, string> destDictionary =
+                new Dictionary<string, string>
+                {
                         {"null", "000"},
                         {"M", "001"},
                         {"D", "010"},
@@ -160,12 +162,12 @@ namespace N2T_Assembler
                         {"AM", "101"},
                         {"AD", "110"},
                         {"AMD", "111"}
-                    };
+                };
 
-                // jump bits dictionary
-                Dictionary<string, string> jumpDictionary =
-                    new Dictionary<string, string>
-                    {
+            // jump bits dictionary
+            Dictionary<string, string> jumpDictionary =
+                new Dictionary<string, string>
+                {
                         {"null", "000"},
                         {"JGT", "001"},
                         {"JEQ", "010"},
@@ -174,74 +176,78 @@ namespace N2T_Assembler
                         {"JNE", "101"},
                         {"JLE", "110"},
                         {"JMP", "111"}
-                    };
+                };
 
+
+            //third pass - check for A or C instruction, translate to binary & write to file
+            Console.WriteLine("Translating & writing to file...");
+            foreach (string lineToRead in linesToRead)
+            {
                 // write to file
                 var dataToWrite = lines.ToArray();
 
-                using (StreamWriter outputFile = new StreamWriter(destFilePath))
+                using StreamWriter outputFile = new StreamWriter(destFilePath);
+                foreach (var line in dataToWrite)
                 {
-                    foreach (var line in dataToWrite)
+                    if (IsWhitespaceOrComment(lineToRead))
                     {
-                        if (line.StartsWith("//") || string.IsNullOrWhiteSpace(line))
-                        {
-                            continue;
-                        }
-                        else
-                        {
-                            var cleanLine = CleanData(line);
-                            // break it down now y'all
-                            if (cleanLine.StartsWith("@"))
-                            {
-                                //process A instruction
-                                var addressPart = cleanLine.Split('@')[1];
-
-                                var address = symbolDictionary.ContainsKey(addressPart)
-                                    ? Convert.ToString(symbolDictionary[addressPart])
-                                    : addressPart;
-
-                                var convertedAddress = Convert.ToString(int.Parse(address), 2).PadLeft(16, '0');
-                                outputFile.WriteLine(convertedAddress);
-                            }
-
-                            if (cleanLine.Contains("=") || cleanLine.Contains(";"))
-                            {
-                                //process C instruction
-                                string convertedString;
-                                string comp;
-                                if (cleanLine.Contains("=") && !cleanLine.Contains(";")) //e.g. MD=M+1
-                                {
-                                    var dest = cleanLine.Split('=')[0];
-                                    var destConverted = destDictionary[dest];
-
-                                    comp = cleanLine.Split('=', ';')[1];
-                                    var compConverted = compDictionary[comp];
-                                    var aBit = comp.Contains("M") ? "1" : "0";
-
-                                    convertedString = compConverted + destConverted + "000";
-                                    outputFile.WriteLine("111" + aBit + convertedString);
-                                }
-
-                                if (!cleanLine.Contains("=") && cleanLine.Contains(";")) //e.g. 0;JMP
-                                {
-                                    comp = cleanLine.Split('=', ';')[0];
-                                    var compConverted = compDictionary[comp];
-                                    var aBit = comp.Contains("M") ? "1" : "0";
-
-                                    var jump = cleanLine.Split('=', ';')[1];
-                                    var jumpConverted = jumpDictionary[jump];
-
-                                    convertedString = compConverted + "000" + jumpConverted;
-                                    outputFile.WriteLine("111" + aBit + convertedString);
-                                }
-                                else
-                                {
-                                    continue;
-                                }
-                            }
-                        }
-
+                        continue;
                     }
+                    else
+                    {
+                        var cleanLine = CleanData(line); // remove inline comments
+                        if (cleanLine.StartsWith("@"))
+                        {
+                            //process A instruction
+                            var addressPart = cleanLine.Split('@')[1];
+
+                            var address = symbolDictionary.ContainsKey(addressPart)
+                                ? Convert.ToString(symbolDictionary[addressPart])
+                                : addressPart;
+
+                            var convertedAddress = Convert.ToString(int.Parse(address), 2).PadLeft(16, '0');
+                            outputFile.WriteLine(convertedAddress);
+                        }
+
+                        if (cleanLine.Contains("=") || cleanLine.Contains(";"))
+                        {
+                            //process C instruction
+                            string dest, comp, jump, 
+                                destConverted, compConverted, jumpConverted, 
+                                aBit, convertedString;
+
+                            if (cleanLine.Contains("=") && !cleanLine.Contains(";")) //e.g. MD=M+1
+                            {
+                                dest = cleanLine.Split('=')[0];
+                                destConverted = destDictionary[dest];
+
+                                comp = cleanLine.Split('=', ';')[1];
+                                compConverted = compDictionary[comp];
+                                aBit = comp.Contains("M") ? "1" : "0";
+
+                                convertedString = compConverted + destConverted + "000";
+                                outputFile.WriteLine("111" + aBit + convertedString);
+                            }
+
+                            if (!cleanLine.Contains("=") && cleanLine.Contains(";")) //e.g. 0;JMP
+                            {
+                                comp = cleanLine.Split('=', ';')[0];
+                                compConverted = compDictionary[comp];
+                                aBit = comp.Contains("M") ? "1" : "0";
+
+                                jump = cleanLine.Split('=', ';')[1];
+                                jumpConverted = jumpDictionary[jump];
+
+                                convertedString = compConverted + "000" + jumpConverted;
+                                outputFile.WriteLine("111" + aBit + convertedString);
+                            }
+                            else
+                            {
+                                continue;
+                            }
+                        }
+                    }
+
                 }
             }
 
